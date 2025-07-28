@@ -32,8 +32,8 @@ server:
       precompressed: false
       folder:
         uri: "/"
-        path: "frontend/dist"
-      fallback: "frontend/dist/index.html"
+        path: "frontend/src"
+      fallback: "frontend/src/index.html"
 
 # Worker Configuration
 workers:
@@ -43,7 +43,7 @@ workers:
   #   - BackgroundAsync - Workers operate asynchronously in the background, processing tasks with async capabilities.
   mode: BackgroundAsync
 
-  
+
 
 # Mailer Configuration.
 mailer:
