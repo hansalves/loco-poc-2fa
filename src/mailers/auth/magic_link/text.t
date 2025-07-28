@@ -1,2 +1,2 @@
-Magic link with this link: 
-{{host}}/api/auth/magic-link/{{token}}
+Magic link with this link:
+{{host}}/magic-link?token={{token}}&email={{email}}

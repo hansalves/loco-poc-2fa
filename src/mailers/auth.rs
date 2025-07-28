@@ -78,6 +78,7 @@ impl AuthMailer {
                   "token": user.magic_link_token.clone().ok_or_else(|| Error::string(
                             "the user model not contains magic link token",
                     ))?,
+                  "email": user.email.clone(),
                   "host": ctx.config.server.full_url()
                 }),
                 ..Default::default()
