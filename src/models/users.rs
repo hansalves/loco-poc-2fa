@@ -5,10 +5,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use uuid::Uuid;
 
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm,
+    Key, // Or `Aes128Gcm`
+};
+use zeroize::Zeroize;
+
 pub use super::_entities::users::{self, ActiveModel, Entity, Model};
 
 pub const MAGIC_LINK_LENGTH: i8 = 32;
 pub const MAGIC_LINK_EXPIRATION_MIN: i8 = 5;
+pub const TOTP_LOGIN_TOKEN_LENGTH: i8 = 32;
+pub const TOTP_LOGIN_TOKEN_EXPIRATION_MIN: i8 = 5;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LoginParams {
@@ -113,42 +122,6 @@ impl Model {
             .one(db)
             .await?;
         user.ok_or_else(|| ModelError::EntityNotFound)
-    }
-
-    /// finds a user by the magic token and verify and token expiration
-    ///
-    /// # Errors
-    ///
-    /// When could not find user by the given token or DB query error ot token expired
-    pub async fn find_by_magic_token(db: &DatabaseConnection, token: &str) -> ModelResult<Self> {
-        let user = users::Entity::find()
-            .filter(
-                query::condition()
-                    .eq(users::Column::MagicLinkToken, token)
-                    .build(),
-            )
-            .one(db)
-            .await?;
-
-        let user = user.ok_or_else(|| ModelError::EntityNotFound)?;
-        if let Some(expired_at) = user.magic_link_expiration {
-            if expired_at >= Local::now() {
-                Ok(user)
-            } else {
-                tracing::debug!(
-                    user_pid = user.pid.to_string(),
-                    token_expiration = expired_at.to_string(),
-                    "magic token expired for the user."
-                );
-                Err(ModelError::msg("magic token expired"))
-            }
-        } else {
-            tracing::error!(
-                user_pid = user.pid.to_string(),
-                "magic link expiration time not exists"
-            );
-            Err(ModelError::msg("expiration token not exists"))
-        }
     }
 
     /// finds a user by the provided reset token
@@ -361,9 +334,69 @@ impl ActiveModel {
     ///
     /// # Errors
     /// - Returns an error if database update fails
-    pub async fn clear_magic_link(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
+    pub async fn clear_magic_link(
+        mut self,
+        db: &DatabaseConnection,
+        set_totp_login_token: bool,
+    ) -> ModelResult<Model> {
         self.magic_link_token = ActiveValue::set(None);
         self.magic_link_expiration = ActiveValue::set(None);
+        if set_totp_login_token {
+            self.create_totp_login_token(db).await
+        } else {
+            self.update(db).await.map_err(ModelError::from)
+        }
+    }
+
+    pub async fn clear_totp_login_token(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
+        self.totp_login_token = ActiveValue::set(None);
+        self.update(db).await.map_err(ModelError::from)
+    }
+
+    pub async fn set_totp_secret(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
+        let mut secret = totp_rs::Secret::generate_secret().to_bytes().map_err(|e| ModelError::Any(e.into()))?;
+        // encrypt secret
+        let totp_enc_key = base32::decode(
+            base32::Alphabet::Rfc4648 { padding: false },
+            &std::env::var("TOTP_ENC_KEY")
+                .expect("totp encryption key not found, set TOTP_ENC_KEY env var"),
+        )
+        .expect("Failed to decode totp encryption key, should be base32 encoded");
+        let key = Key::<Aes256Gcm>::from_slice(&totp_enc_key);
+        let cipher = Aes256Gcm::new(&key);
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
+        let encrypted_secret = cipher.encrypt(&nonce, secret.as_ref()).expect("Can't encrypt");
+        secret.zeroize();
+        let encoded_secret = base32::encode(
+            base32::Alphabet::Rfc4648 { padding: false },
+            &encrypted_secret);
+        let encoded_nonce = base32::encode(
+                base32::Alphabet::Rfc4648 { padding: false },
+                &nonce);
+        self.totp_secret = ActiveValue::set(Some(encoded_secret + "." + &encoded_nonce));
+        self.update(db).await.map_err(ModelError::from)
+    }
+
+    pub async fn set_totp_verified_at(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
+        self.totp_verified_at = ActiveValue::set(Some(chrono::Utc::now().into()));
+        self.update(db).await.map_err(ModelError::from)
+    }
+
+    pub async fn create_totp_login_token(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
+        let random_str = hash::random_string(TOTP_LOGIN_TOKEN_LENGTH as usize);
+        let expired = Local::now() + Duration::minutes(TOTP_LOGIN_TOKEN_EXPIRATION_MIN.into());
+        self.totp_login_token = ActiveValue::set(Some(random_str));
+        self.totp_login_token_expiration = ActiveValue::set(Some(expired.into()));
+        self.update(db).await.map_err(ModelError::from)
+    }
+
+    pub async fn set_password(
+        mut self,
+        db: &DatabaseConnection,
+        password: &str,
+    ) -> ModelResult<Model> {
+        let password_hash = hash::hash_password(password).map_err(|e| ModelError::Any(e.into()))?;
+        self.password = ActiveValue::set(password_hash);
         self.update(db).await.map_err(ModelError::from)
     }
 }
