@@ -9,4 +9,13 @@ In this project the user model has been modified to allow for two factor authent
 
 The frontend has been made using [🍦VanJS](https://vanjs.org/) and does not require a build step. 
 
-To test the project just run `cargo loco start` and call the api to register a user `curl -i -d '{"name":"test","email":"test@example.com","password":"foobar"}' -H 'Content-Type: application/json' 'http://localhost:5150/api/auth/register'`.
+To test the project 
+
+- run `cargo loco start`
+- call the api to register a user `curl -i -d '{"name":"test","email":"test@example.com","password":"foobar"}' -H 'Content-Type: application/json' 'http://localhost:5150/api/auth/register'`.
+- open http://localhost:5150/login in your browser
+- login using un `test@example.com` and pw `foobar`
+- after logging in, go to http://localhost:5150/account and use the `Setup 2FA` button to set register a TOTP secret
+- logout
+- when logging in again you'll be asked for a totp code
+
