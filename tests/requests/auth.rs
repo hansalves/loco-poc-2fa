@@ -127,7 +127,7 @@ async fn login_with_un_existing_email() {
     configure_insta!();
 
     request::<App, _, _>(|request, _ctx| async move {
-      
+
         let login_response = request
             .post("/api/auth/login")
             .json(&serde_json::json!({
@@ -347,11 +347,17 @@ async fn can_auth_with_magic_link() {
             .await
             .expect("User should be found");
 
+        let email = user.email;
         let magic_link_token = user
             .magic_link_token
             .expect("Magic link token should be generated");
+        let payload = serde_json::json!({
+            "email": email,
+            "token": magic_link_token,
+        });
         let magic_link_response = request
-            .get(&format!("/api/auth/magic-link/{magic_link_token}"))
+            .post(&format!("/api/auth/magic-link-verify"))
+            .json(&payload)
             .await;
         assert_eq!(
             magic_link_response.status_code(),
@@ -394,7 +400,14 @@ async fn can_reject_invalid_magic_link_token() {
     request::<App, _, _>(|request, ctx| async move {
         seed::<App>(&ctx).await.unwrap();
 
-        let magic_link_response = request.get("/api/auth/magic-link/invalid-token").await;
+        let payload = serde_json::json!({
+            "email": "user1@example.com",
+            "token": "invalid-token",
+        });
+        let magic_link_response = request
+            .post(&format!("/api/auth/magic-link-verify"))
+            .json(&payload)
+            .await;
         assert_eq!(
             magic_link_response.status_code(),
             401,

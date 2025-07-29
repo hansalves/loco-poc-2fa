@@ -16,7 +16,8 @@ use totp_rs::{Algorithm, TOTP};
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
-    Key, Nonce, // Or `Aes128Gcm`
+    Key,
+    Nonce, // Or `Aes128Gcm`
 };
 use zeroize::Zeroize;
 
@@ -348,12 +349,14 @@ fn decrypt_totp_secret(encrypted_secret: &str) -> Result<Vec<u8>, loco_rs::Error
     if parts.len() != 2 {
         return Err(loco_rs::Error::InternalServerError);
     }
-    let nonce = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, parts[1]).expect("Failed to decode nonce, should be base32 encoded");
+    let nonce = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, parts[1])
+        .expect("Failed to decode nonce, should be base32 encoded");
     if nonce.len() != 12 {
         return Err(loco_rs::Error::InternalServerError);
     }
     let nonce = Nonce::from_slice(&nonce);
-    let encrypted_secret = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, parts[0]).expect("Failed to decode encrypted secret, should be base32 encoded");
+    let encrypted_secret = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, parts[0])
+        .expect("Failed to decode encrypted secret, should be base32 encoded");
 
     let secret = cipher.decrypt(&nonce, encrypted_secret.as_ref());
     totp_enc_key.zeroize();

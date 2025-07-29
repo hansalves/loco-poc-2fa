@@ -4,8 +4,6 @@ expression: existing_user
 ---
 Ok(
     Model {
-        created_at: 2023-11-12T12:34:56.789+00:00,
-        updated_at: 2023-11-12T12:34:56.789+00:00,
         id: 1,
         pid: 11111111-1111-1111-1111-111111111111,
         email: "user1@example.com",
@@ -19,5 +17,11 @@ Ok(
         email_verified_at: None,
         magic_link_token: None,
         magic_link_expiration: None,
+        totp_secret: None,
+        totp_verified_at: None,
+        totp_login_token: None,
+        totp_login_token_expiration: None,
+        created_at: 2023-11-12T12:34:56.789+00:00,
+        updated_at: 2023-11-12T12:34:56.789+00:00,
     },
 )

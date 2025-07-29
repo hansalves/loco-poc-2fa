@@ -1,5 +1,5 @@
 use axum::http::{HeaderName, HeaderValue};
-use loco_poc_2fa::{models::users, views::auth::LoginResponse};
+use loco_poc_2fa::{models::users, views::auth::LoginData};
 use loco_rs::{app::AppContext, TestServer};
 
 const USER_EMAIL: &str = "test@loco.com";
@@ -40,7 +40,7 @@ pub async fn init_user_login(request: &TestServer, ctx: &AppContext) -> LoggedIn
         }))
         .await;
 
-    let login_response: LoginResponse = serde_json::from_str(&response.text()).unwrap();
+    let login_response: LoginData = serde_json::from_str(&response.text()).unwrap();
 
     LoggedInUser {
         user: users::Model::find_by_email(&ctx.db, USER_EMAIL)

@@ -354,7 +354,9 @@ impl ActiveModel {
     }
 
     pub async fn set_totp_secret(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        let mut secret = totp_rs::Secret::generate_secret().to_bytes().map_err(|e| ModelError::Any(e.into()))?;
+        let mut secret = totp_rs::Secret::generate_secret()
+            .to_bytes()
+            .map_err(|e| ModelError::Any(e.into()))?;
         // encrypt secret
         let totp_enc_key = base32::decode(
             base32::Alphabet::Rfc4648 { padding: false },
@@ -365,14 +367,15 @@ impl ActiveModel {
         let key = Key::<Aes256Gcm>::from_slice(&totp_enc_key);
         let cipher = Aes256Gcm::new(&key);
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
-        let encrypted_secret = cipher.encrypt(&nonce, secret.as_ref()).expect("Can't encrypt");
+        let encrypted_secret = cipher
+            .encrypt(&nonce, secret.as_ref())
+            .expect("Can't encrypt");
         secret.zeroize();
         let encoded_secret = base32::encode(
             base32::Alphabet::Rfc4648 { padding: false },
-            &encrypted_secret);
-        let encoded_nonce = base32::encode(
-                base32::Alphabet::Rfc4648 { padding: false },
-                &nonce);
+            &encrypted_secret,
+        );
+        let encoded_nonce = base32::encode(base32::Alphabet::Rfc4648 { padding: false }, &nonce);
         self.totp_secret = ActiveValue::set(Some(encoded_secret + "." + &encoded_nonce));
         self.update(db).await.map_err(ModelError::from)
     }

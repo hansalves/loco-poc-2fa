@@ -1,11 +1,8 @@
 ---
 source: tests/requests/auth.rs
-assertion_line: 414
 expression: user
 ---
 Model {
-    created_at: DATE,
-    updated_at: DATE,
     id: ID
     pid: PID,
     email: "test@loco.com",
@@ -23,4 +20,10 @@ Model {
     email_verified_at: None,
     magic_link_token: None,
     magic_link_expiration: None,
+    totp_secret: None,
+    totp_verified_at: None,
+    totp_login_token: None,
+    totp_login_token_expiration: None,
+    created_at: DATE,
+    updated_at: DATE,
 }
