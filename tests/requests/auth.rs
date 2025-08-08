@@ -1,8 +1,10 @@
 use insta::{assert_debug_snapshot, with_settings};
+use loco_poc_2fa::views::auth::{LoginData, LoginResponse, RegisterTOTPResponse};
 use loco_poc_2fa::{app::App, models::users};
 use loco_rs::testing::prelude::*;
 use rstest::rstest;
 use serial_test::serial;
+use totp_rs::{Algorithm, TOTP};
 
 use super::prepare_data;
 
@@ -510,6 +512,232 @@ async fn cannot_resend_email_if_already_verified() {
             deliveries.count, 1,
             "Only the original welcome email should be sent"
         );
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn can_login_with_totp() {
+    configure_insta!();
+
+    request::<App, _, _>(|request, ctx| async move {
+        let login_data = prepare_data::init_user_login(&request, &ctx).await;
+
+        // Register TOTP for the user (requires password and auth header)
+        let (auth_key, auth_value) = prepare_data::auth_header(&login_data.token);
+        let register_totp_response = request
+            .post("/api/auth/register-totp")
+            .add_header(auth_key.clone(), auth_value.clone())
+            .json(&serde_json::json!({
+                "password": "1234"
+            }))
+            .await;
+
+        assert_eq!(register_totp_response.status_code(), 200);
+        let totp_register: RegisterTOTPResponse =
+            serde_json::from_str(&register_totp_response.text()).unwrap();
+
+        // Extract the base32 secret from the otpauth URL
+        let url = totp_register.url;
+        let secret_b32 = url
+            .split("secret=")
+            .nth(1)
+            .and_then(|s| s.split('&').next())
+            .expect("secret should exist in otpauth url");
+        let secret_bytes = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, secret_b32)
+            .expect("failed to decode base32 secret");
+
+        // Create a TOTP instance compatible with server settings and generate a code
+        let totp = TOTP::new(
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            secret_bytes,
+            Some("loco-poc-2fa".to_string()),
+            login_data.user.email.clone(),
+        )
+        .expect("failed to create totp instance");
+        let totp_code = totp.generate_current().expect("generate totp code");
+
+        // Verify TOTP setup
+        let verify_totp_response = request
+            .post("/api/auth/verify-totp")
+            .add_header(auth_key, auth_value)
+            .json(&serde_json::json!({
+                "totp": totp_code
+            }))
+            .await;
+        assert_eq!(verify_totp_response.status_code(), 200);
+
+        // Try password-only login: should now require TOTP (return a challenge)
+        let login_response = request
+            .post("/api/auth/login")
+            .json(&serde_json::json!({
+                "email": login_data.user.email,
+                "password": "1234"
+            }))
+            .await;
+        assert_eq!(login_response.status_code(), 200);
+
+        let login_resp: LoginResponse = serde_json::from_str(&login_response.text()).unwrap();
+        let totp_login_token = match login_resp {
+            LoginResponse::TOTPChallenge(ch) => ch.totp_login_token,
+            _ => panic!("expected TOTPChallenge after password login when TOTP is enabled"),
+        };
+
+        // Complete login by providing the TOTP code
+        let totp_code_2 = totp.generate_current().expect("generate totp code");
+        let final_login_response = request
+            .post("/api/auth/login-totp")
+            .json(&serde_json::json!({
+                "email": login_data.user.email,
+                "token": totp_login_token,
+                "totp": totp_code_2
+            }))
+            .await;
+        assert_eq!(final_login_response.status_code(), 200);
+        let final_login: LoginResponse =
+            serde_json::from_str(&final_login_response.text()).unwrap();
+        match final_login {
+            LoginResponse::Login(_) => {}
+            _ => panic!("expected successful login after providing valid TOTP code"),
+        }
+    })
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn can_login_with_totp_via_magic_link() {
+    configure_insta!();
+
+    request::<App, _, _>(|request, ctx| async move {
+        // Register a new user with an allowed domain for magic link
+        let email = "mltotp@example.com";
+        let password = "1234";
+        let register_payload = serde_json::json!({
+            "name": "mltotp",
+            "email": email,
+            "password": password
+        });
+
+        let register_response = request
+            .post("/api/auth/register")
+            .json(&register_payload)
+            .await;
+        assert_eq!(register_response.status_code(), 200);
+
+        // Login with password to obtain a JWT for TOTP registration
+        let login_response = request
+            .post("/api/auth/login")
+            .json(&serde_json::json!({
+                "email": email,
+                "password": password
+            }))
+            .await;
+        assert_eq!(login_response.status_code(), 200);
+        let login_data: LoginData = serde_json::from_str(&login_response.text()).unwrap();
+
+        // Register TOTP using the JWT and password
+        let (auth_key, auth_value) = prepare_data::auth_header(&login_data.token);
+        let register_totp_response = request
+            .post("/api/auth/register-totp")
+            .add_header(auth_key.clone(), auth_value.clone())
+            .json(&serde_json::json!({
+                "password": password
+            }))
+            .await;
+        assert_eq!(register_totp_response.status_code(), 200);
+
+        let totp_register: RegisterTOTPResponse =
+            serde_json::from_str(&register_totp_response.text()).unwrap();
+
+        // Extract base32 secret from otpauth URL and build TOTP generator
+        let url = totp_register.url;
+        let secret_b32 = url
+            .split("secret=")
+            .nth(1)
+            .and_then(|s| s.split('&').next())
+            .expect("secret should exist in otpauth url");
+        let secret_bytes = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, secret_b32)
+            .expect("failed to decode base32 secret");
+
+        let totp = TOTP::new(
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            secret_bytes,
+            Some("loco-poc-2fa".to_string()),
+            email.to_string(),
+        )
+        .expect("failed to create totp instance");
+        let totp_code = totp.generate_current().expect("generate totp code");
+
+        // Verify TOTP setup
+        let verify_totp_response = request
+            .post("/api/auth/verify-totp")
+            .add_header(auth_key, auth_value)
+            .json(&serde_json::json!({
+                "totp": totp_code
+            }))
+            .await;
+        assert_eq!(verify_totp_response.status_code(), 200);
+
+        // Start magic link flow
+        let magic_link_request = request
+            .post("/api/auth/magic-link")
+            .json(&serde_json::json!({
+                "email": email
+            }))
+            .await;
+        assert_eq!(magic_link_request.status_code(), 200);
+
+        // Fetch magic link token issued to the user
+        let user = users::Model::find_by_email(&ctx.db, email)
+            .await
+            .expect("User should be found");
+        let magic_link_token = user
+            .magic_link_token
+            .expect("Magic link token should be generated");
+
+        // Verify magic link. Since TOTP is enabled, expect a TOTP challenge
+        let magic_link_verify_response = request
+            .post("/api/auth/magic-link-verify")
+            .json(&serde_json::json!({
+                "email": email,
+                "token": magic_link_token
+            }))
+            .await;
+        assert_eq!(magic_link_verify_response.status_code(), 200);
+        let challenge: LoginResponse =
+            serde_json::from_str(&magic_link_verify_response.text()).unwrap();
+        let totp_login_token = match challenge {
+            LoginResponse::TOTPChallenge(ch) => ch.totp_login_token,
+            _ => panic!("expected TOTPChallenge after magic link verify when TOTP is enabled"),
+        };
+
+        // Complete login by providing the TOTP code to the dedicated endpoint
+        let totp_code_2 = totp.generate_current().expect("generate totp code");
+        let final_login_response = request
+            .post("/api/auth/login-totp")
+            .json(&serde_json::json!({
+                "email": email,
+                "token": totp_login_token,
+                "totp": totp_code_2
+            }))
+            .await;
+        assert_eq!(final_login_response.status_code(), 200);
+        let final_login: LoginResponse =
+            serde_json::from_str(&final_login_response.text()).unwrap();
+        match final_login {
+            LoginResponse::Login(_) => {}
+            _ => panic!(
+                "expected successful login after providing valid TOTP code via magic link flow"
+            ),
+        }
     })
     .await;
 }

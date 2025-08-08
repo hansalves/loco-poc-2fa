@@ -96,3 +96,9 @@ auth:
     secret: jYo9wMLrsO0pXKL6nRhb
     # Token expiration time in seconds
     expiration: 604800 # 7 days
+
+settings:
+  # TOTP Configuration
+  totp:
+    # TOTP secret for token generation and verification
+    secret: IV5NAJ6MYHE2J43FOYKKYAMVBZHSUAIPIRTLPFFG2B4AINNQMMXQ

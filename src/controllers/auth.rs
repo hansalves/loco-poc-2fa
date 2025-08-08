@@ -349,9 +349,12 @@ fn get_totp_secret(ctx: &AppContext) -> Result<Vec<u8>, loco_rs::Error> {
     Ok(secret)
 }
 
-fn decrypt_totp_secret(ctx: &AppContext, encrypted_secret: &str) -> Result<Vec<u8>, loco_rs::Error> {
+fn decrypt_totp_secret(
+    ctx: &AppContext,
+    encrypted_secret: &str,
+) -> Result<Vec<u8>, loco_rs::Error> {
     let mut totp_enc_key = get_totp_secret(ctx)
-    .expect("Failed to decode totp encryption key, should be base32 encoded");
+        .expect("Failed to decode totp encryption key, should be base32 encoded");
     let key = Key::<Aes256Gcm>::from_slice(&totp_enc_key);
     let cipher = Aes256Gcm::new(&key);
     let parts: Vec<&str> = encrypted_secret.split('.').collect();
@@ -385,7 +388,10 @@ async fn register_totp(
         return unauthorized("unauthorized!");
     }
 
-    let user = user.into_active_model().set_totp_secret(&ctx.db, &get_totp_secret(&ctx)?).await?;
+    let user = user
+        .into_active_model()
+        .set_totp_secret(&ctx.db, &get_totp_secret(&ctx)?)
+        .await?;
 
     if let Some(encrypted_secret) = user.totp_secret {
         let totp = TOTP::new(
@@ -394,7 +400,7 @@ async fn register_totp(
             1,
             30,
             decrypt_totp_secret(&ctx, &encrypted_secret)?,
-            Some("Check".to_string()),
+            Some("loco-poc-2fa".to_string()),
             user.email.clone(),
         )
         .map_err(|_| loco_rs::Error::InternalServerError)?; // do this after zeroize so the decrypted secret will always be zeroized
@@ -428,7 +434,7 @@ async fn verify_totp(
         1,
         30,
         decrypt_totp_secret(&ctx, &totp_secret)?,
-        Some("Check".to_string()),
+        Some("loco-poc-2fa".to_string()),
         user.email.clone(),
     )
     .map_err(|_| loco_rs::Error::InternalServerError)?;
@@ -491,7 +497,7 @@ async fn login_totp(
         1,
         30,
         decrypt_totp_secret(&ctx, &totp_secret)?,
-        Some("Check".to_string()),
+        Some("loco-poc-2fa".to_string()),
         user.email.clone(),
     )
     .map_err(|_| loco_rs::Error::InternalServerError)?;

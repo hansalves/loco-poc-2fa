@@ -353,7 +353,11 @@ impl ActiveModel {
         self.update(db).await.map_err(ModelError::from)
     }
 
-    pub async fn set_totp_secret(mut self, db: &DatabaseConnection, totp_enc_key: &[u8]) -> ModelResult<Model> {
+    pub async fn set_totp_secret(
+        mut self,
+        db: &DatabaseConnection,
+        totp_enc_key: &[u8],
+    ) -> ModelResult<Model> {
         let mut secret = totp_rs::Secret::generate_secret()
             .to_bytes()
             .map_err(|e| ModelError::Any(e.into()))?;
