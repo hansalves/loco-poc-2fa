@@ -353,18 +353,11 @@ impl ActiveModel {
         self.update(db).await.map_err(ModelError::from)
     }
 
-    pub async fn set_totp_secret(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
+    pub async fn set_totp_secret(mut self, db: &DatabaseConnection, totp_enc_key: &[u8]) -> ModelResult<Model> {
         let mut secret = totp_rs::Secret::generate_secret()
             .to_bytes()
             .map_err(|e| ModelError::Any(e.into()))?;
-        // encrypt secret
-        let totp_enc_key = base32::decode(
-            base32::Alphabet::Rfc4648 { padding: false },
-            &std::env::var("TOTP_ENC_KEY")
-                .expect("totp encryption key not found, set TOTP_ENC_KEY env var"),
-        )
-        .expect("Failed to decode totp encryption key, should be base32 encoded");
-        let key = Key::<Aes256Gcm>::from_slice(&totp_enc_key);
+        let key = Key::<Aes256Gcm>::from_slice(totp_enc_key);
         let cipher = Aes256Gcm::new(&key);
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
         let encrypted_secret = cipher

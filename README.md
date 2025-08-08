@@ -11,8 +11,7 @@ The frontend has been made using [🍦VanJS](https://vanjs.org/) and does not re
 
 To test the project 
 
-- generate an encryption key for the totp secrets using for instance `head -c 32 /dev/urandom | base32`
-- run `TOTP_ENC_KEY=....... cargo loco start` (replace ....... by the generated key)
+- run `cargo loco start`
 - call the api to register a user `curl -i -d '{"name":"test","email":"test@example.com","password":"foobar"}' -H 'Content-Type: application/json' 'http://localhost:5150/api/auth/register'`.
 - open http://localhost:5150/login in your browser
 - login using un `test@example.com` and pw `foobar`

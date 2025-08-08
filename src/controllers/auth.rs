@@ -336,12 +336,21 @@ async fn resend_verification_email(
     format::json(())
 }
 
-fn decrypt_totp_secret(encrypted_secret: &str) -> Result<Vec<u8>, loco_rs::Error> {
-    let mut totp_enc_key = base32::decode(
-        base32::Alphabet::Rfc4648 { padding: false },
-        &std::env::var("TOTP_ENC_KEY")
-            .expect("totp encryption key not found, set TOTP_ENC_KEY env var"),
-    )
+fn get_totp_secret(ctx: &AppContext) -> Result<Vec<u8>, loco_rs::Error> {
+    let Some(settings) = &ctx.config.settings else {
+        panic!("settings not found");
+    };
+    let Some(totp_secret) = settings.get("totp").and_then(|t| t.get("secret")) else {
+        panic!("totp secret not found");
+    };
+    let secret = totp_secret.as_str().unwrap_or("");
+    let secret = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, &secret)
+        .expect("Failed to decode totp secret, should be base32 encoded");
+    Ok(secret)
+}
+
+fn decrypt_totp_secret(ctx: &AppContext, encrypted_secret: &str) -> Result<Vec<u8>, loco_rs::Error> {
+    let mut totp_enc_key = get_totp_secret(ctx)
     .expect("Failed to decode totp encryption key, should be base32 encoded");
     let key = Key::<Aes256Gcm>::from_slice(&totp_enc_key);
     let cipher = Aes256Gcm::new(&key);
@@ -376,7 +385,7 @@ async fn register_totp(
         return unauthorized("unauthorized!");
     }
 
-    let user = user.into_active_model().set_totp_secret(&ctx.db).await?;
+    let user = user.into_active_model().set_totp_secret(&ctx.db, &get_totp_secret(&ctx)?).await?;
 
     if let Some(encrypted_secret) = user.totp_secret {
         let totp = TOTP::new(
@@ -384,7 +393,7 @@ async fn register_totp(
             6,
             1,
             30,
-            decrypt_totp_secret(&encrypted_secret)?,
+            decrypt_totp_secret(&ctx, &encrypted_secret)?,
             Some("Check".to_string()),
             user.email.clone(),
         )
@@ -418,7 +427,7 @@ async fn verify_totp(
         6,
         1,
         30,
-        decrypt_totp_secret(&totp_secret)?,
+        decrypt_totp_secret(&ctx, &totp_secret)?,
         Some("Check".to_string()),
         user.email.clone(),
     )
@@ -481,7 +490,7 @@ async fn login_totp(
         6,
         1,
         30,
-        decrypt_totp_secret(&totp_secret)?,
+        decrypt_totp_secret(&ctx, &totp_secret)?,
         Some("Check".to_string()),
         user.email.clone(),
     )
